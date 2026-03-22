@@ -1,21 +1,36 @@
 const express = require('express');
 const http = require('http');
+const path = require('path');
 const { Server } = require('socket.io');
 
 const app = express();
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: '*' } });
+
+// Configure CORS for Socket.IO
+const allowedOrigins = [
+  'http://localhost:3000',
+  'http://localhost:5173',
+  process.env.RAILWAY_PUBLIC_DOMAIN ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}` : null,
+  process.env.CLIENT_URL || null
+].filter(Boolean);
+
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ['GET', 'POST']
+  }
+});
 
 // Serve all static files from the root directory
-app.use(express.static('.'));
+app.use(express.static(path.join(__dirname)));
 
 // Explicit routes
 app.get('/', (req, res) => {
-  res.sendFile(__dirname + '/index.html');
+  res.sendFile(path.join(__dirname, 'index.html'));
 });
 
 app.get('/host', (req, res) => {
-  res.sendFile(__dirname + '/host.html');
+  res.sendFile(path.join(__dirname, 'host.html'));
 });
 
 // ─── Game Constants ───────────────────────────────────────────────
@@ -327,7 +342,7 @@ io.on('connection', (socket) => {
 // ─── Start Server ─────────────────────────────────────────────────
 const PORT = process.env.PORT || 3000;
 
-server.listen(PORT, () => {
+server.listen(PORT, '0.0.0.0', () => {
   const publicUrl = process.env.RAILWAY_PUBLIC_DOMAIN
     ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
     : `http://localhost:${PORT}`;
