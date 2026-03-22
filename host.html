@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Dead Reckoning — Host View</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Pirata+One&family=Crimson+Pro:ital,wght@0,400;1,400&display=swap');
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { width:100%; height:100%; overflow:hidden; background:#06101e; font-family:'Crimson Pro',serif; color:#f2e4c4; }
+
+  #gameCanvas { position:fixed; inset:0; width:100%; height:100%; }
+
+  /* HUD overlay */
+  #hud {
+    position:fixed; top:0; left:0; right:0;
+    display:flex; justify-content:space-between; align-items:flex-start;
+    padding:0.8rem 1.2rem;
+    pointer-events:none; z-index:10;
+  }
+  .hud-pill {
+    background:rgba(6,13,26,0.8);
+    border:1px solid rgba(201,138,26,0.35);
+    border-radius:4px;
+    padding:0.3rem 0.8rem;
+    backdrop-filter:blur(6px);
+    font-family:'Pirata One',cursive;
+    font-size:1rem;
+    color:#f0b429;
+    letter-spacing:0.05em;
+    text-shadow:0 0 12px rgba(240,180,41,0.4);
+  }
+  .hud-label { font-family:'Crimson Pro',serif; font-size:0.55rem; letter-spacing:0.3em; text-transform:uppercase; color:rgba(201,138,26,0.6); display:block; font-style:italic; }
+
+  /* Player list sidebar */
+  #sidebar {
+    position:fixed; right:0; top:0; bottom:0;
+    width:200px;
+    background:rgba(6,13,26,0.85);
+    border-left:1px solid rgba(201,138,26,0.2);
+    backdrop-filter:blur(8px);
+    padding:0.8rem 0.6rem;
+    overflow-y:auto;
+    z-index:10;
+  }
+  #sidebar-title {
+    font-family:'Pirata One',cursive;
+    font-size:0.85rem;
+    color:rgba(201,138,26,0.7);
+    letter-spacing:0.1em;
+    text-align:center;
+    margin-bottom:0.6rem;
+    padding-bottom:0.5rem;
+    border-bottom:1px solid rgba(201,138,26,0.2);
+  }
+  .player-row {
+    display:flex; align-items:center; gap:0.5rem;
+    padding:0.35rem 0.3rem;
+    border-radius:4px;
+    margin-bottom:2px;
+    transition:opacity 0.3s;
+  }
+  .player-row.dead { opacity:0.3; }
+  .player-dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .player-row-name { font-size:0.8rem; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .player-row-hp { font-size:0.7rem; }
+  .player-row-score { font-family:'Pirata One',cursive; font-size:0.75rem; color:#f0b429; }
+
+  /* Kill feed */
+  #kill-feed {
+    position:fixed; left:1rem; bottom:4rem;
+    width:280px; z-index:10; pointer-events:none;
+  }
+  .kf-msg {
+    background:rgba(6,13,26,0.75);
+    border:1px solid rgba(201,138,26,0.2);
+    border-radius:4px;
+    padding:0.3rem 0.7rem;
+    font-size:0.75rem;
+    color:rgba(242,228,196,0.8);
+    font-style:italic;
+    margin-bottom:4px;
+    animation:kf-in 4s forwards;
+  }
+  @keyframes kf-in { 0%{opacity:0;transform:translateX(-20px)} 10%{opacity:1;transform:none} 80%{opacity:1} 100%{opacity:0} }
+
+  /* QR / lobby overlay */
+  #lobby-overlay {
+    position:fixed; inset:0;
+    background:rgba(6,13,26,0.92);
+    backdrop-filter:blur(8px);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:1rem; z-index:20;
+    transition:opacity 0.6s;
+  }
+  #lobby-overlay.hidden { opacity:0; pointer-events:none; }
+
+  .lobby-title {
+    font-family:'Pirata One',cursive;
+    font-size:clamp(3rem,7vw,6rem);
+    color:#f0b429;
+    text-shadow:0 0 40px rgba(240,180,41,0.5), 0 0 80px rgba(240,180,41,0.2);
+    line-height:1;
+    text-align:center;
+  }
+  .lobby-sub {
+    font-size:clamp(0.7rem,1.5vw,1rem);
+    letter-spacing:0.5em;
+    text-transform:uppercase;
+    color:rgba(242,228,196,0.4);
+    font-style:italic;
+  }
+  #qr-container {
+    background:#f2e4c4;
+    border-radius:8px;
+    padding:1rem;
+    width:clamp(130px,18vw,200px);
+    height:clamp(130px,18vw,200px);
+    display:flex; align-items:center; justify-content:center;
+  }
+  #qr-container canvas { width:100%!important; height:100%!important; }
+  .join-url {
+    font-family:'Pirata One',cursive;
+    font-size:clamp(1rem,2.5vw,1.6rem);
+    color:#f0b429;
+    letter-spacing:0.05em;
+  }
+  .lobby-player-list {
+    display:flex; flex-wrap:wrap; gap:0.5rem;
+    max-width:600px; justify-content:center;
+  }
+  .lobby-player-chip {
+    font-family:'Pirata One',cursive;
+    font-size:0.9rem;
+    padding:0.3rem 0.8rem;
+    border-radius:20px;
+    border:1.5px solid;
+    animation:chip-in 0.3s ease-out;
+  }
+  @keyframes chip-in { from{transform:scale(0.5);opacity:0} to{transform:scale(1);opacity:1} }
+
+  .lobby-count {
+    font-family:'Pirata One',cursive;
+    font-size:1.2rem;
+    color:rgba(242,228,196,0.5);
+  }
+
+  /* Countdown overlay */
+  #countdown-overlay {
+    position:fixed; inset:0;
+    display:flex; align-items:center; justify-content:center;
+    z-index:25; pointer-events:none;
+    opacity:0; transition:opacity 0.3s;
+  }
+  #countdown-overlay.visible { opacity:1; }
+  #countdown-num {
+    font-family:'Pirata One',cursive;
+    font-size:clamp(8rem,20vw,16rem);
+    color:#f0b429;
+    text-shadow:0 0 60px rgba(240,180,41,0.7);
+    animation:count-pop 0.5s ease-out;
+  }
+  @keyframes count-pop { from{transform:scale(2);opacity:0} to{transform:scale(1);opacity:1} }
+
+  /* Winner overlay */
+  #winner-overlay {
+    position:fixed; inset:0;
+    background:rgba(6,13,26,0.93);
+    backdrop-filter:blur(10px);
+    display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:1.2rem; z-index:30;
+    opacity:0; pointer-events:none; transition:opacity 0.8s;
+  }
+  #winner-overlay.visible { opacity:1; pointer-events:all; }
+
+  .winner-trophy { font-size:clamp(4rem,10vw,8rem); animation:float 2s ease-in-out infinite; }
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-12px)} }
+
+  .winner-headline {
+    font-family:'Pirata One',cursive;
+    font-size:clamp(1.5rem,4vw,3rem);
+    color:rgba(242,228,196,0.6);
+    letter-spacing:0.2em;
+  }
+  .winner-name-big {
+    font-family:'Pirata One',cursive;
+    font-size:clamp(3rem,8vw,7rem);
+    text-shadow:0 0 40px currentColor, 0 0 80px currentColor;
+    line-height:1;
+  }
+
+  .lb-table {
+    background:rgba(13,31,53,0.8);
+    border:1px solid rgba(201,138,26,0.3);
+    border-radius:8px;
+    overflow:hidden;
+    min-width:400px;
+  }
+  .lb-head {
+    background:rgba(201,138,26,0.15);
+    display:grid; grid-template-columns:40px 1fr 80px 80px 80px;
+    padding:0.5rem 1rem;
+    font-size:0.65rem; letter-spacing:0.3em; text-transform:uppercase; color:rgba(201,138,26,0.7);
+  }
+  .lb-row {
+    display:grid; grid-template-columns:40px 1fr 80px 80px 80px;
+    padding:0.6rem 1rem;
+    border-top:1px solid rgba(201,138,26,0.1);
+    font-size:0.9rem; align-items:center;
+  }
+  .lb-rank-num { font-family:'Pirata One',cursive; color:#f0b429; }
+  .lb-n { font-family:'Pirata One',cursive; }
+  .lb-k { color:#e74c3c; font-family:'Pirata One',cursive; text-align:center; }
+  .lb-s { color:#f0b429; font-family:'Pirata One',cursive; text-align:right; }
+  .lb-alive { font-size:0.8rem; text-align:center; }
+
+  #restart-hint { font-size:0.75rem; letter-spacing:0.3em; color:rgba(242,228,196,0.25); font-style:italic; text-transform:uppercase; animation:breathe 2s ease-in-out infinite; }
+  @keyframes breathe { 0%,100%{opacity:0.3} 50%{opacity:0.7} }
+
+  /* Zone warning */
+  #zone-warning {
+    position:fixed; top:50%; left:50%;
+    transform:translate(-50%,-50%);
+    font-family:'Pirata One',cursive;
+    font-size:clamp(1.5rem,4vw,3rem);
+    color:#e74c3c;
+    text-shadow:0 0 30px rgba(231,76,60,0.7);
+    pointer-events:none; z-index:15;
+    opacity:0; transition:opacity 0.3s;
+    text-align:center;
+  }
+  #zone-warning.visible { opacity:1; }
+</style>
+</head>
+<body>
+
+<canvas id="gameCanvas"></canvas>
+
+<div id="hud">
+  <div class="hud-pill"><span class="hud-label">Alive</span><span id="alive-count">0</span></div>
+  <div class="hud-pill" style="text-align:center"><span class="hud-label">Safe Zone</span><span id="zone-size">Full</span></div>
+  <div class="hud-pill" style="text-align:right"><span class="hud-label">Players</span><span id="total-count">0</span></div>
+</div>
+
+<div id="sidebar">
+  <div id="sidebar-title">🏴‍☠️ CREW</div>
+  <div id="player-list"></div>
+</div>
+
+<div id="kill-feed"></div>
+<div id="zone-warning">⚠️ STORM CLOSING IN!</div>
+
+<div id="lobby-overlay">
+  <div class="lobby-title">Dead<br>Reckoning</div>
+  <div class="lobby-sub">Pirate Battle Royale</div>
+  <div id="qr-container"><canvas id="qr-canvas"></canvas></div>
+  <div class="join-url" id="join-url">loading...</div>
+  <div class="lobby-count" id="lobby-count">0 pirates ready</div>
+  <div class="lobby-player-list" id="lobby-player-list"></div>
+</div>
+
+<div id="countdown-overlay">
+  <div id="countdown-num">3</div>
+</div>
+
+<div id="winner-overlay">
+  <div class="winner-trophy">🏆</div>
+  <div class="winner-headline">Last Pirate Standing</div>
+  <div class="winner-name-big" id="winner-name-big"></div>
+  <div class="lb-table" id="lb-table"></div>
+  <div id="restart-hint">players can start a new game from their phones</div>
+</div>
+
+<script src="/socket.io/socket.io.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() { W = canvas.width = window.innerWidth - 200; H = canvas.height = window.innerHeight; }
+resize();
+window.addEventListener('resize', resize);
+
+// ── Game State ──
+let state = { players:{}, bullets:[], loot:[], safeZone:{ x:1200,y:900,r:900 }, gameState:'lobby' };
+let worldW = 2400, worldH = 1800;
+let camera = { x:0, y:0, zoom:1 };
+let explosions = [], wakeTrails = {};
+let t = 0;
+let stars = [];
+
+function initStars() {
+  stars = [];
+  for(let i=0;i<200;i++) stars.push({ x:Math.random()*worldW, y:Math.random()*worldH, r:Math.random()*1.5+0.3, tw:Math.random()*Math.PI*2, spd:Math.random()*0.015+0.003 });
+}
+initStars();
+
+// ── Camera ──
+function updateCamera() {
+  const alive = Object.values(state.players).filter(p=>p.alive);
+  if (alive.length === 0) { camera.x = worldW/2; camera.y = worldH/2; }
+  else {
+    let mx=0,my=0;
+    alive.forEach(p=>{mx+=p.x;my+=p.y;});
+    camera.x += (mx/alive.length - camera.x)*0.05;
+    camera.y += (my/alive.length - camera.y)*0.05;
+  }
+  // zoom to fit safe zone
+  const targetZoom = Math.min(W, H) / (state.safeZone.r * 2.2);
+  camera.zoom += (Math.min(1.5, Math.max(0.25, targetZoom)) - camera.zoom)*0.02;
+}
+
+function worldToScreen(wx, wy) {
+  return {
+    x: W/2 + (wx - camera.x)*camera.zoom,
+    y: H/2 + (wy - camera.y)*camera.zoom,
+  };
+}
+
+// ── Drawing ──
+function drawBackground() {
+  // Sky / water
+  const bg = ctx.createLinearGradient(0,0,0,H);
+  bg.addColorStop(0,'#040d1c');
+  bg.addColorStop(0.4,'#071525');
+  bg.addColorStop(1,'#020810');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0,0,W,H);
+
+  // Stars (static bg)
+  stars.forEach(s=>{
+    s.tw+=s.spd;
+    const sc = worldToScreen(s.x, s.y);
+    if(sc.x<0||sc.x>W||sc.y<0||sc.y>H) return;
+    const a = 0.2+0.5*Math.abs(Math.sin(s.tw));
+    ctx.beginPath(); ctx.arc(sc.x,sc.y,s.r,0,Math.PI*2);
+    ctx.fillStyle=`rgba(240,230,200,${a})`; ctx.fill();
+  });
+}
+
+function drawOceanTiles() {
+  // Grid pattern for ocean depth feeling
+  ctx.save();
+  ctx.globalAlpha = 0.03;
+  ctx.strokeStyle = '#1a5276';
+  ctx.lineWidth = 1;
+  const gridSize = 100 * camera.zoom;
+  const offX = (-camera.x * camera.zoom + W/2) % gridSize;
+  const offY = (-camera.y * camera.zoom + H/2) % gridSize;
+  for(let x=offX-gridSize; x<W+gridSize; x+=gridSize) {
+    ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,H); ctx.stroke();
+  }
+  for(let y=offY-gridSize; y<H+gridSize; y+=gridSize) {
+    ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(W,y); ctx.stroke();
+  }
+  ctx.restore();
+
+  // Wave lines
+  ctx.save();
+  ctx.globalAlpha = 0.04;
+  ctx.strokeStyle='#a8d8ea';
+  ctx.lineWidth=1;
+  for(let i=0;i<8;i++){
+    ctx.beginPath();
+    const baseY = (i*80 + t*15) % H;
+    for(let x=0;x<W;x+=4){
+      ctx.lineTo(x, baseY + Math.sin(x*0.02+t*0.5+i)*6);
+    }
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+function drawSafeZone() {
+  const { x, y, r } = state.safeZone;
+  const sc = worldToScreen(x, y);
+  const sr = r * camera.zoom;
+
+  // Danger zone (outside) - red tint
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(0,0,W,H);
+  ctx.arc(sc.x, sc.y, sr, 0, Math.PI*2, true);
+  ctx.fillStyle = 'rgba(150,20,20,0.12)';
+  ctx.fill();
+  ctx.restore();
+
+  // Zone border
+  ctx.save();
+  ctx.beginPath();
+  ctx.arc(sc.x, sc.y, sr, 0, Math.PI*2);
+  ctx.strokeStyle = `rgba(231,76,60,${0.5 + 0.2*Math.sin(t*2)})`;
+  ctx.lineWidth = 2;
+  ctx.setLineDash([12,8]);
+  ctx.lineDashOffset = -t*20;
+  ctx.stroke();
+  ctx.setLineDash([]);
+  ctx.restore();
+}
+
+function drawLoot() {
+  state.loot.forEach(l => {
+    const sc = worldToScreen(l.x, l.y);
+    const bob = Math.sin(t*1.5+l.id)*4;
+    ctx.save();
+    ctx.translate(sc.x, sc.y+bob);
+
+    // Glow
+    const glowColor = l.type==='health' ? 'rgba(231,76,60,0.3)' : 'rgba(240,180,41,0.3)';
+    const g = ctx.createRadialGradient(0,0,0,0,0,20*camera.zoom);
+    g.addColorStop(0, glowColor); g.addColorStop(1,'transparent');
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(0,0,20*camera.zoom,0,Math.PI*2); ctx.fill();
+
+    ctx.font=`${Math.max(12,18*camera.zoom)}px serif`;
+    ctx.textAlign='center'; ctx.textBaseline='middle';
+    ctx.fillText(l.type==='health'?'❤️':'🪙', 0, 0);
+    ctx.restore();
+  });
+}
+
+function drawShip(p, id) {
+  const sc = worldToScreen(p.x, p.y);
+  if(sc.x<-80||sc.x>W+80||sc.y<-80||sc.y>H+80) return;
+
+  const sz = Math.max(0.4, camera.zoom);
+
+  ctx.save();
+  ctx.translate(sc.x, sc.y);
+  ctx.rotate(p.angle);
+  ctx.scale(sz, sz);
+  ctx.globalAlpha = p.alive ? 1 : 0.2;
+
+  // Wake trail
+  if(p.alive) {
+    ctx.save();
+    ctx.rotate(-p.angle);
+    ctx.globalAlpha = 0.08;
+    ctx.fillStyle=p.color;
+    ctx.beginPath();
+    ctx.ellipse(0,20,14,30,0,0,Math.PI*2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  // Hull shadow
+  ctx.shadowColor = p.color;
+  ctx.shadowBlur = p.alive ? 12 : 0;
+
+  // Hull
+  ctx.beginPath();
+  ctx.moveTo(0,-40);
+  ctx.bezierCurveTo(20,-30,28,-10,24,10);
+  ctx.bezierCurveTo(22,20,12,26,0,28);
+  ctx.bezierCurveTo(-12,26,-22,20,-24,10);
+  ctx.bezierCurveTo(-28,-10,-20,-30,0,-40);
+  ctx.fillStyle = p.alive ? p.color : '#333';
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+  ctx.lineWidth=1.5;
+  ctx.stroke();
+  ctx.shadowBlur=0;
+
+  // Deck stripe
+  ctx.beginPath();
+  ctx.moveTo(-18,0); ctx.lineTo(18,0); ctx.lineTo(14,-28); ctx.lineTo(-14,-28); ctx.closePath();
+  ctx.fillStyle='rgba(0,0,0,0.2)'; ctx.fill();
+
+  // Mast
+  ctx.strokeStyle='rgba(255,255,255,0.5)'; ctx.lineWidth=2;
+  ctx.beginPath(); ctx.moveTo(0,-8); ctx.lineTo(0,-50); ctx.stroke();
+
+  // Sail
+  ctx.beginPath();
+  ctx.moveTo(0,-12); ctx.lineTo(0,-46); ctx.lineTo(22,-38); ctx.lineTo(18,-14); ctx.closePath();
+  ctx.fillStyle=`rgba(255,255,255,0.15)`; ctx.fill();
+
+  // HP dots
+  ctx.save();
+  ctx.rotate(-p.angle);
+  for(let i=0;i<3;i++){
+    ctx.beginPath();
+    ctx.arc(-14+(i*14), -48, 5, 0, Math.PI*2);
+    ctx.fillStyle = i<p.hp ? '#e74c3c' : 'rgba(255,255,255,0.1)';
+    ctx.fill();
+  }
+  ctx.restore();
+
+  ctx.restore();
+
+  // Name label
+  if(p.alive){
+    ctx.save();
+    ctx.font=`bold ${Math.max(9,13*sz)}px 'Pirata One',cursive`;
+    ctx.textAlign='center';
+    ctx.fillStyle='rgba(6,13,26,0.6)';
+    ctx.fillText(p.name, sc.x+1, sc.y - 52*sz + 1);
+    ctx.fillStyle=p.color;
+    ctx.fillText(p.name, sc.x, sc.y - 52*sz);
+    ctx.restore();
+  }
+}
+
+function drawBullets() {
+  state.bullets.forEach(b=>{
+    const sc = worldToScreen(b.x, b.y);
+    const owner = state.players[b.ownerId];
+    const color = owner ? owner.color : '#f0b429';
+
+    ctx.save();
+    // Glow
+    const g=ctx.createRadialGradient(sc.x,sc.y,0,sc.x,sc.y,12);
+    g.addColorStop(0,color); g.addColorStop(1,'transparent');
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(sc.x,sc.y,12,0,Math.PI*2); ctx.fill();
+
+    // Core
+    ctx.beginPath(); ctx.arc(sc.x,sc.y,4*camera.zoom,0,Math.PI*2);
+    ctx.fillStyle='#f0b429'; ctx.fill();
+    ctx.restore();
+  });
+}
+
+function drawExplosions() {
+  explosions = explosions.filter(e=>{
+    e.life--;
+    const sc = worldToScreen(e.x,e.y);
+    const prog = 1 - e.life/e.maxLife;
+    const r = e.r*camera.zoom*(1+prog*2);
+    const alpha = 1-prog;
+
+    ctx.save();
+    const g=ctx.createRadialGradient(sc.x,sc.y,0,sc.x,sc.y,r);
+    g.addColorStop(0,`rgba(255,220,100,${alpha})`);
+    g.addColorStop(0.4,`rgba(255,100,30,${alpha*0.7})`);
+    g.addColorStop(1,'transparent');
+    ctx.fillStyle=g;
+    ctx.beginPath(); ctx.arc(sc.x,sc.y,r,0,Math.PI*2); ctx.fill();
+    ctx.restore();
+    return e.life>0;
+  });
+}
+
+function render() {
+  t+=0.016;
+  updateCamera();
+
+  ctx.clearRect(0,0,W,H);
+  drawBackground();
+  drawOceanTiles();
+  drawSafeZone();
+  drawLoot();
+
+  Object.entries(state.players).forEach(([id,p])=>drawShip(p,id));
+  drawBullets();
+  drawExplosions();
+
+  requestAnimationFrame(render);
+}
+render();
+
+// ── Sidebar ──
+function updateSidebar() {
+  const sorted = Object.values(state.players).sort((a,b)=> (b.alive-a.alive)||(b.score-a.score));
+  document.getElementById('player-list').innerHTML = sorted.map(p=>`
+    <div class="player-row ${p.alive?'':'dead'}">
+      <div class="player-dot" style="background:${p.color}"></div>
+      <div class="player-row-name" style="color:${p.color}">${p.name}</div>
+      <div class="player-row-hp">${'❤️'.repeat(Math.max(0,p.hp))}</div>
+      <div class="player-row-score">${p.score}</div>
+    </div>
+  `).join('');
+
+  const alive = Object.values(state.players).filter(p=>p.alive).length;
+  const total = Object.keys(state.players).length;
+  document.getElementById('alive-count').textContent = alive;
+  document.getElementById('total-count').textContent = total;
+  document.getElementById('zone-size').textContent = Math.round(state.safeZone.r);
+}
+
+// ── Kill Feed ──
+function addKillFeed(msg) {
+  const feed = document.getElementById('kill-feed');
+  const el = document.createElement('div');
+  el.className='kf-msg'; el.textContent=msg;
+  feed.appendChild(el);
+  setTimeout(()=>el.remove(),4000);
+}
+
+// ── Socket ──
+const socket = io();
+
+// Get URL for QR
+socket.on('connect', ()=>{
+  const url = window.location.origin;
+  document.getElementById('join-url').textContent = url.replace('http://','');
+  // Generate QR
+  try {
+    new QRCode(document.getElementById('qr-canvas'), {
+      text: url,
+      width:200, height:200,
+      colorDark:'#1a0f00', colorLight:'#f2e4c4',
+      correctLevel: QRCode.CorrectLevel.M,
+    });
+  } catch(e) {
+    document.getElementById('qr-container').textContent = url;
+  }
+});
+
+socket.on('gameState', (s)=>{
+  state = s;
+  if(s.gameState === 'lobby') {
+    document.getElementById('lobby-overlay').classList.remove('hidden');
+    updateLobbyPlayers(s);
+  } else if(s.gameState === 'playing') {
+    document.getElementById('lobby-overlay').classList.add('hidden');
+    document.getElementById('winner-overlay').classList.remove('visible');
+  }
+  updateSidebar();
+});
+
+socket.on('tick', (s)=>{
+  state = s;
+  updateSidebar();
+});
+
+socket.on('playerJoined', ({ name, count })=>{
+  document.getElementById('lobby-count').textContent = `${count} pirate${count!==1?'s':''} ready`;
+  updateLobbyPlayers(state);
+  addKillFeed(`⚓ ${name} has joined the crew`);
+});
+
+socket.on('playerLeft', ({ name })=>{ addKillFeed(`${name} abandoned ship`); });
+
+socket.on('countdown', n=>{
+  const overlay = document.getElementById('countdown-overlay');
+  const num = document.getElementById('countdown-num');
+  overlay.classList.add('visible');
+  num.textContent = n>0 ? n : '⚔️';
+  // Re-trigger animation
+  num.style.animation='none'; num.offsetHeight; num.style.animation='count-pop 0.5s ease-out';
+  if(n<=0) setTimeout(()=>overlay.classList.remove('visible'),600);
+});
+
+socket.on('gameStart', (s)=>{
+  state = s;
+  document.getElementById('lobby-overlay').classList.add('hidden');
+  document.getElementById('winner-overlay').classList.remove('visible');
+});
+
+socket.on('hit', ({ targetId, hp })=>{
+  if(state.players[targetId]) state.players[targetId].hp = hp;
+});
+
+socket.on('fired', ({ ownerId, x, y })=>{
+  explosions.push({ x, y, r:20, life:12, maxLife:12 });
+});
+
+socket.on('playerDied', ({ id, killedBy })=>{
+  if(state.players[id]) state.players[id].alive = false;
+  const name = state.players[id]?.name || '?';
+  addKillFeed(`💀 ${name} was sunk by ${killedBy}`);
+  explosions.push({ x:state.players[id]?.x||0, y:state.players[id]?.y||0, r:60, life:40, maxLife:40 });
+});
+
+socket.on('lootPickup', ({ lootId })=>{
+  state.loot = state.loot.filter(l=>l.id!==lootId);
+});
+
+socket.on('zoneShrink', (zone)=>{
+  state.safeZone = zone;
+  const warn = document.getElementById('zone-warning');
+  warn.classList.add('visible');
+  setTimeout(()=>warn.classList.remove('visible'),3000);
+  addKillFeed('⚠️ The storm is closing in!');
+});
+
+socket.on('gameEnd', ({ winner, players })=>{
+  document.getElementById('winner-overlay').classList.add('visible');
+  const wn = document.getElementById('winner-name-big');
+  if(winner){ wn.textContent=winner.name; wn.style.color=winner.color; }
+  else { wn.textContent='No survivors...'; wn.style.color='#888'; }
+
+  const lb = document.getElementById('lb-table');
+  lb.innerHTML=`<div class="lb-head"><span>#</span><span>Pirate</span><span style="text-align:center">💀 Kills</span><span style="text-align:center">Alive</span><span style="text-align:right">🪙 Gold</span></div>`;
+  players.forEach((p,i)=>{
+    const row=document.createElement('div');
+    row.className='lb-row';
+    row.innerHTML=`<span class="lb-rank-num">${i+1}</span><span class="lb-n" style="color:${p.color}">${p.name}</span><span class="lb-k">${p.kills}</span><span class="lb-alive">${p.alive?'⛵':'💀'}</span><span class="lb-s">${p.score}</span>`;
+    lb.appendChild(row);
+  });
+});
+
+function updateLobbyPlayers(s) {
+  const list = document.getElementById('lobby-player-list');
+  list.innerHTML = Object.values(s.players||{}).map(p=>`
+    <div class="lobby-player-chip" style="color:${p.color};border-color:${p.color};background:${p.color}22">⚓ ${p.name}</div>
+  `).join('');
+}
+</script>
+</body>
+</html>
