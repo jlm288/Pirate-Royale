@@ -6,7 +6,17 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: '*' } });
 
-app.use(express.static('public'));
+// Serve all static files from the root directory
+app.use(express.static('.'));
+
+// Explicit routes
+app.get('/', (req, res) => {
+  res.sendFile(__dirname + '/index.html');
+});
+
+app.get('/host', (req, res) => {
+  res.sendFile(__dirname + '/host.html');
+});
 
 // ─── Game Constants ───────────────────────────────────────────────
 const WORLD_W = 2400;
@@ -322,7 +332,7 @@ server.listen(PORT, () => {
     ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
     : `http://localhost:${PORT}`;
 
-  console.log('\n\uD83C\uDFF4\u200D\u2620\uFE0F  DEAD RECKONING — Pirate Battle Royale');
+  console.log('\n🏴‍☠️  DEAD RECKONING — Pirate Battle Royale');
   console.log('===========================================');
   console.log(`  Host display:  ${publicUrl}/host`);
   console.log(`  Players join:  ${publicUrl}`);
